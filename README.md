@@ -147,8 +147,8 @@ Dari matriks di atas:
 
 | Metrik | Formula | Hasil |
 |--------|---------|-------|
-| Overall Accuracy | Jumlah benar / Total sampel | ~94.6% (110/116) |
-| Kappa Coefficient | (Po - Pe) / (1 - Pe) | Sangat baik (> 0.80) |
+| Overall Accuracy | Jumlah benar / Total sampel | **0.9455 (94.55%)** |
+| Kappa Coefficient | (Po - Pe) / (1 - Pe) | **0.8511** — Sangat baik (> 0.80) |
 
 Nilai Overall Accuracy di atas 94% dan Kappa yang tinggi mengindikasikan bahwa model Random Forest berhasil memisahkan ketiga kelas tutupan lahan dengan sangat baik, terutama untuk kelas mangrove yang menjadi fokus utama penelitian.
 
