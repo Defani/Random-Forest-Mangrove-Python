@@ -292,7 +292,8 @@ Threshold `cs_cdf >= 0.60` digunakan untuk menyeimbangkan omission dan commissio
 
 Random Forest (RF) adalah algoritma ensemble berbasis pohon keputusan yang menggunakan **majority voting** dari sejumlah pohon untuk menentukan kelas akhir setiap piksel.
 
-![Random Forest Algorithm](Screenshot_2026-06-09_012602.png)
+<img width="721" height="437" alt="Screenshot 2026-06-09 012602" src="https://github.com/user-attachments/assets/cec19ddd-14f9-463e-b383-f8bfc73ffa12" />
+
 
 Dataset dibagi ke sejumlah pohon keputusan (Tree 1, Tree 2, ..., Tree 500). Setiap pohon menghasilkan prediksi kelas secara independen. Kelas akhir ditentukan melalui **Majority Voting** dari seluruh pohon.
 
@@ -354,6 +355,7 @@ classified_image = image_with_indices.select(all_bands).classify(classifier)
 - Cloud masking: Cloud Score+ (`cs_cdf >= 0.60`)
 - Komposit: Median seluruh scene yang lolos filter
 - Normalisasi reflektansi: dibagi 10.000
+<img width="868" height="837" alt="download (43)" src="https://github.com/user-attachments/assets/b0ed1456-09f8-4b3c-9fd7-0bb004eca11a" />
 
 ### 2. Pelatihan Model
 
@@ -369,10 +371,12 @@ classified_image = image_with_indices.select(all_bands).classify(classifier)
 | 0 | Badan Air | Biru muda |
 | 1 | Mangrove | Hijau |
 | 2 | Non-Mangrove | Kuning muda |
+<img width="868" height="837" alt="download (44)" src="https://github.com/user-attachments/assets/852c7d25-ee35-45f3-9974-d6fde20bdde2" />
 
 ---
 
 ## Evaluasi Akurasi
+<img width="551" height="451" alt="download (45)" src="https://github.com/user-attachments/assets/250dc752-33f4-4955-8f66-b79dd1152a89" />
 
 ### Overall Accuracy (OA)
 
