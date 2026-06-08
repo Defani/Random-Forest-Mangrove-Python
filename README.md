@@ -2,21 +2,67 @@
 
 **Oleh:** Defani Arman Alfitriansyah
 
-Notebook ini membangun pipeline klasifikasi tutupan lahan mangrove secara otomatis menggunakan **Google Earth Engine (GEE)** dan algoritma **Random Forest**. Data yang digunakan adalah citra **Sentinel-2 SR Harmonized** dengan periode 2024–2025, dilengkapi cloud masking berbasis Cloud Score+. Model dilatih menggunakan 15 fitur prediktor — 10 band spektral dan 5 indeks turunan — untuk membedakan tiga kelas tutupan: Badan Air, Mangrove, dan Non-Mangrove. Area kajian mencakup kawasan pesisir di sekitar koordinat 7.12–7.23°S, 113.05–113.18°E.
+Seluruh tahapan analisis dalam notebook ini dijalankan di **Google Colaboratory** menggunakan library `geemap` yang terhubung dengan **Google Earth Engine (GEE)**. Notebook dapat diakses di: [https://colab.research.google.com/drive/1QbNTV-tW1OE2vAPIRL58LTYWdCHZ9AuW?usp=sharing](https://colab.research.google.com/drive/1QbNTV-tW1OE2vAPIRL58LTYWdCHZ9AuW?usp=sharing)
 
 ---
 
 ## Daftar Isi
 
-1. [Alur Kerja](#alur-kerja)
-2. [Preprocessing & Komposit](#preprocessing-dan-komposit)
-3. [False Color Composite](#false-color-composite)
-4. [Indeks Spektral](#indeks-spektral)
-5. [Profil Spektral (Spectral Signature)](#profil-spektral)
-6. [Korelasi Band & Indeks terhadap Kelas](#korelasi-band-dan-indeks)
-7. [Hasil Klasifikasi Random Forest](#hasil-klasifikasi)
-8. [Overlay Mangrove di Atas NIR](#overlay-mangrove)
+1. [Gambaran Umum](#gambaran-umum)
+2. [Platform & Package](#platform-dan-package)
+3. [Alur Kerja](#alur-kerja)
+4. [Indeks Rumus](#indeks-rumus)
+   - [NDVI](#1-ndvi)
+   - [NDWI](#2-ndwi)
+   - [NDMI](#3-ndmi)
+   - [NDBI](#4-ndbi)
+   - [IRECI](#5-ireci)
+5. [Cloud Masking — Cloud Score+](#cloud-masking)
+6. [Algoritma Random Forest](#algoritma-random-forest)
+7. [Band Sentinel-2 yang Digunakan](#band-sentinel-2)
+8. [Tahapan Analisis](#tahapan-analisis)
 9. [Evaluasi Akurasi](#evaluasi-akurasi)
+10. [Daftar Referensi](#daftar-referensi)
+
+---
+
+## Gambaran Umum
+
+Notebook ini mengimplementasikan klasifikasi tutupan lahan mangrove menggunakan algoritma **Random Forest** berbasis data **Sentinel-2 SR Harmonized** melalui platform **Google Earth Engine (GEE)**. Output berupa peta klasifikasi tiga kelas: Badan Air, Mangrove, dan Non-Mangrove.
+
+---
+
+## Platform dan Package
+
+Seluruh proses komputasi dijalankan di **Google Colaboratory** menggunakan koneksi ke Google Earth Engine melalui library `geemap`.
+
+### Instalasi
+
+```python
+!pip install earthengine-api geemap cartopy matplotlib numpy scikit-learn
+```
+
+### Package yang Digunakan
+
+| Package | Versi | Fungsi |
+|---------|-------|--------|
+| `earthengine-api` | latest | Akses Google Earth Engine Python API |
+| `geemap` | latest | Visualisasi peta interaktif berbasis GEE di Colab |
+| `geemap.cartoee` | (bagian geemap) | Ekspor peta GEE ke matplotlib dengan proyeksi kartografi |
+| `cartopy` | latest | Proyeksi peta dan gridline (LONGITUDE_FORMATTER, LATITUDE_FORMATTER) |
+| `matplotlib` | latest | Visualisasi dan plotting hasil klasifikasi |
+| `numpy` | latest | Operasi array dan matriks |
+| `pandas` | latest | Manipulasi data tabular (variable importance) |
+| `seaborn` | latest | Heatmap confusion matrix dan visualisasi statistik |
+| `scikit-learn` | latest | Metrik evaluasi tambahan |
+
+### Autentikasi GEE
+
+```python
+import ee
+ee.Authenticate()
+ee.Initialize(project='ee-defaniarman')
+```
 
 ---
 
@@ -25,13 +71,13 @@ Notebook ini membangun pipeline klasifikasi tutupan lahan mangrove secara otomat
 ```
 Sentinel-2 SR Harmonized (2024–2025)
             |
-    Cloud Masking (cs_cdf >= 0.60)
+    Cloud Masking (Cloud Score+, cs_cdf >= 0.60)
             |
-    Komposit Median + Clip Area Kajian
+    Komposit Median + Clip Batas Kajian
             |
     Hitung Indeks: NDVI, NDWI, NDMI, NDBI, IRECI
             |
-    Ekstraksi Nilai ke Titik Sampel
+    Ekstraksi Nilai ke Titik Sampel (sampleRegions)
             |
     Training Random Forest (500 pohon, split 70:30)
             |
@@ -42,117 +88,382 @@ Sentinel-2 SR Harmonized (2024–2025)
 
 ---
 
-## Preprocessing dan Komposit
+## Indeks Rumus
 
-Data Sentinel-2 difilter berdasarkan batas kajian, periode waktu, dan persentase tutupan awan di bawah 20%. Cloud masking dilakukan menggunakan Cloud Score+ dengan threshold `cs_cdf >= 0.60`. Seluruh scene yang lolos filter digabung menggunakan operasi **median** untuk menghasilkan satu citra komposit bebas awan, lalu dinormalisasi ke rentang reflektansi 0–1 (dibagi 10.000).
+### 1. NDVI
+**Normalized Difference Vegetation Index**
 
----
+Mengukur kerapatan dan kehijauan vegetasi.
 
-## False Color Composite
+$$
+\text{NDVI} = \frac{B8 - B4}{B8 + B4}
+$$
 
-Komposit warna semu menggunakan kombinasi band **B8 (NIR) – B11 (SWIR-1) – B4 (Red)**. Kombinasi ini efektif untuk membedakan vegetasi (tampak hijau terang), badan air (biru-hitam gelap), dan lahan terbangun atau lahan terbuka (kuning-cokelat).
+| Simbol | Band Sentinel-2 | Panjang Gelombang |
+|--------|-----------------|-------------------|
+| B8 | NIR (Near-Infrared) | ~842 nm |
+| B4 | Red | ~665 nm |
 
-![False Color Composite B8-11-4](download__43_.png)
+**Interpretasi:** Nilai mendekati +1 = vegetasi lebat. Nilai mendekati 0 = lahan terbuka. Nilai negatif = air.
 
-Pada citra di atas, area hijau terang di sepanjang aliran sungai dan pesisir menandakan keberadaan vegetasi mangrove yang memiliki reflektansi NIR tinggi. Area ungu-hitam gelap merupakan tambak dan badan air, sedangkan area kuning adalah lahan pertanian dan permukiman.
+```python
+ndvi = s2.select('B8').subtract(s2.select('B4')) \
+         .divide(s2.select('B8').add(s2.select('B4'))) \
+         .rename('NDVI')
+```
 
----
-
-## Indeks Spektral
-
-Lima indeks turunan dihitung dari kombinasi band Sentinel-2 dan digunakan sebagai fitur tambahan dalam model klasifikasi.
-
-| Indeks | Rumus | Fungsi |
-|--------|-------|--------|
-| NDVI | (B8 - B4) / (B8 + B4) | Kerapatan vegetasi |
-| NDWI | (B3 - B8) / (B3 + B8) | Identifikasi badan air |
-| NDMI | (B8 - B11) / (B8 + B11) | Kelembapan kanopi |
-| NDBI | (B11 - B8) / (B11 + B8) | Kawasan terbangun |
-| IRECI | (B8 - B4) / (B5 / B6) | Kandungan klorofil (Red-Edge) |
+> Sitasi: Rouse et al. (1973); Tucker (1979); Jamaluddin et al. (2022)
 
 ---
 
-## Profil Spektral
+### 2. NDWI
+**Normalized Difference Water Index**
 
-Spectral signature menampilkan rata-rata nilai reflektansi tiap kelas pada seluruh band Sentinel-2. Pola ini digunakan untuk memverifikasi separabilitas antar kelas sebelum klasifikasi.
+Mengidentifikasi badan air permukaan dan kelembapan kanopi.
 
-![Profil Spektral (Spectral Signature)](download__48_.png)
+$$
+\text{NDWI} = \frac{B3 - B8}{B3 + B8}
+$$
 
-Beberapa pola penting yang terlihat:
+| Simbol | Band Sentinel-2 | Panjang Gelombang |
+|--------|-----------------|-------------------|
+| B3 | Green | ~560 nm |
+| B8 | NIR (Near-Infrared) | ~842 nm |
 
-- **Mangrove** (hijau tua) menunjukkan nilai NIR (B6–B8A) yang sangat tinggi, merupakan ciri khas vegetasi lebat dengan biomassa tinggi. Terdapat penurunan tajam di B11 (SWIR) akibat penyerapan air pada daun.
-- **Non-Mangrove** (kuning) memiliki pola mirip mangrove di NIR namun dengan nilai SWIR yang lebih tinggi, mencerminkan vegetasi yang lebih kering atau lahan campuran.
-- **Badan Air** (biru muda) konsisten rendah di semua band, dengan sedikit peningkatan di band biru-hijau (B2–B3), pola khas untuk air jernih atau keruh.
+**Interpretasi:** Nilai positif = badan air. Nilai negatif = vegetasi/lahan kering.
 
-Separabilitas yang jelas antara ketiga kelas di band NIR dan SWIR menjadi dasar kinerja model yang baik.
+```python
+ndwi = s2.select('B3').subtract(s2.select('B8')) \
+         .divide(s2.select('B3').add(s2.select('B8'))) \
+         .rename('NDWI')
+```
 
----
-
-## Korelasi Band dan Indeks
-
-Heatmap ini menampilkan nilai korelasi Pearson antara setiap variabel prediktor dengan masing-masing kelas tutupan lahan. Semakin mendekati +1 (hijau tua) atau -1 (merah tua), semakin kuat hubungan linear variabel tersebut dengan kelas.
-
-![Korelasi Band & Indeks terhadap Tiap Kelas](download__46_.png)
-
-Temuan utama dari heatmap korelasi:
-
-- **NDWI** memiliki korelasi tertinggi dengan kelas Badan Air (+0.96), menjadikannya prediktor terkuat untuk mendeteksi air.
-- **NDVI** berkorelasi kuat dengan Mangrove (+0.78) dan berkorelasi negatif kuat dengan Badan Air (-0.96).
-- **Band NIR** (B6, B7, B8, B8A) semuanya berkorelasi positif kuat dengan kelas Mangrove (0.68–0.70).
-- **Band SWIR** (B11, B12) berkorelasi kuat dengan kelas Non-Mangrove (0.68 dan 0.71), mencerminkan karakteristik lahan kering atau terbangun.
-- **IRECI** menunjukkan korelasi 0.74 dengan Mangrove, mengonfirmasi kegunaannya dalam mendeteksi klorofil vegetasi pesisir.
+> Sitasi: McFeeters (1996)
 
 ---
 
-## Hasil Klasifikasi
+### 3. NDMI
+**Normalized Difference Moisture Index**
 
-Klasifikasi Random Forest menghasilkan peta tutupan lahan dengan tiga kelas. Model dilatih menggunakan 500 pohon keputusan dengan 15 fitur prediktor.
+Mengukur kandungan air pada vegetasi (kelembapan kanopi).
 
-![Random Forest Classification](download__44_.png)
+$$
+\text{NDMI} = \frac{B8 - B11}{B8 + B11}
+$$
 
-Peta klasifikasi menunjukkan distribusi spasial yang masuk akal secara ekologis: mangrove (hijau tua) terkonsentrasi di sepanjang tepian sungai dan garis pantai, badan air (biru muda) mendominasi area tambak dan sungai utama, serta non-mangrove (kuning muda) tersebar di lahan pertanian dan permukiman.
+| Simbol | Band Sentinel-2 | Panjang Gelombang |
+|--------|-----------------|-------------------|
+| B8 | NIR (Near-Infrared) | ~842 nm |
+| B11 | SWIR-1 (Short-Wave Infrared) | ~1610 nm |
+
+**Interpretasi:** Nilai tinggi = vegetasi dengan kelembapan tinggi (cocok untuk mangrove). Nilai rendah = vegetasi kering atau lahan terbuka.
+
+```python
+ndmi = s2.select('B8').subtract(s2.select('B11')) \
+         .divide(s2.select('B8').add(s2.select('B11'))) \
+         .rename('NDMI')
+```
+
+> Sitasi: Shi et al. (2016); Jamaluddin et al. (2022)
 
 ---
 
-## Overlay Mangrove
+### 4. NDBI
+**Normalized Difference Built-up Index**
 
-Hasil ekstraksi kelas mangrove dari Random Forest divisualisasikan sebagai overlay warna hijau di atas citra band NIR grayscale, sehingga distribusi spasial mangrove lebih mudah diinterpretasikan dalam konteks lanskap aslinya.
+Mengidentifikasi kawasan terbangun/permukiman.
 
-![Overlay Hasil Klasifikasi Mangrove di Atas NIR](download__47_.png)
+$$
+\text{NDBI} = \frac{B11 - B8}{B11 + B8}
+$$
 
-Overlay ini memperlihatkan bahwa mangrove tumbuh secara linear mengikuti aliran sungai dan membentuk sabuk hijau di tepi pantai. Pola ini konsisten dengan karakteristik ekologi mangrove yang bergantung pada pasokan air payau dari percampuran air sungai dan laut.
+| Simbol | Band Sentinel-2 | Panjang Gelombang |
+|--------|-----------------|-------------------|
+| B11 | SWIR-1 (Short-Wave Infrared) | ~1610 nm |
+| B8 | NIR (Near-Infrared) | ~842 nm |
+
+Catatan: NDBI adalah kebalikan dari NDMI. Nilai positif mengindikasikan kawasan terbangun; nilai negatif mengindikasikan vegetasi.
+
+```python
+ndbi = s2.select('B11').subtract(s2.select('B8')) \
+         .divide(s2.select('B11').add(s2.select('B8'))) \
+         .rename('NDBI')
+```
+
+> Sitasi: Zha et al. (2003)
+
+---
+
+### 5. IRECI
+**Inverted Red-Edge Chlorophyll Index**
+
+Mengukur kandungan klorofil menggunakan band Red-Edge — sangat sensitif terhadap vegetasi mangrove.
+
+$$
+\text{IRECI} = \frac{B8 - B4}{B5 / B6}
+$$
+
+Dapat ditulis juga sebagai:
+
+$$
+\text{IRECI} = \frac{(B8 - B4) \times B6}{B5}
+$$
+
+| Simbol | Band Sentinel-2 | Panjang Gelombang |
+|--------|-----------------|-------------------|
+| B8 | NIR (Near-Infrared) | ~842 nm |
+| B4 | Red | ~665 nm |
+| B5 | Red-Edge 1 | ~705 nm |
+| B6 | Red-Edge 2 | ~740 nm |
+
+**Interpretasi:** Nilai tinggi = kandungan klorofil tinggi, vegetasi sehat dan lebat. Sangat berguna untuk membedakan mangrove dari vegetasi lain.
+
+```python
+ireci = s2.select('B8').subtract(s2.select('B4')) \
+          .divide(s2.select('B5').divide(s2.select('B6'))) \
+          .rename('IRECI')
+```
+
+> Sitasi: Clevers et al. (2000); Suardana et al. (2023)
+
+---
+
+## Cloud Masking
+
+Proses cloud masking menggunakan **Cloud Score+ (CS+)**, produk quality assessment (QA) berbasis deep learning yang dikembangkan oleh Google. CS+ menghasilkan skor QA per piksel pada rentang kontinu [0, 1], di mana nilai mendekati 1 = piksel bersih dan nilai mendekati 0 = piksel terkontaminasi awan atau bayangan awan.
+
+### Model QA
+
+Setiap piksel dimodelkan sebagai kombinasi linear antara reflektansi asli permukaan dan kontaminasi atmosfer:
+
+$$
+p_m = p_t \cdot q + c \cdot (1 - q)
+$$
+
+$$
+QA(p_m) = q
+$$
+
+| Simbol | Keterangan |
+|--------|------------|
+| $p_m$ | Nilai piksel yang diukur sensor |
+| $p_t$ | Reflektansi asli permukaan |
+| $c$ | Komponen kontaminasi atmosfer |
+| $q$ | Skor QA piksel, $q \in [0, 1]$ |
+
+### Atmospheric Similarity (ASIM)
+
+$$
+ASIM_i(x_i, y_i) := \min_{p \in \{x_i, y_i\}} QA(p)
+$$
+
+Jika $r$ adalah citra referensi bersih ($QA(r) = 1$), maka $ASIM(x, r) = QA(x)$.
+
+### Log Transform Input
+
+$$
+x' = \frac{\log(x + 1)}{10}
+$$
+
+### Penerapan dalam Notebook
+
+```python
+csPlus = ee.ImageCollection('GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED')
+
+def maskS2CSPlus(image):
+    qa = image.select('cs_cdf')
+    return image.updateMask(qa.gte(0.60))
+
+s2 = (s2_base
+    .linkCollection(csPlus, ['cs_cdf'])
+    .map(maskS2CSPlus)
+    .median()
+    .clip(batas_kajian)
+    .divide(10000))
+```
+
+Threshold `cs_cdf >= 0.60` digunakan untuk menyeimbangkan omission dan commission error.
+
+> Sitasi: Pasquarella et al. (2023)
+
+---
+
+## Algoritma Random Forest
+
+Random Forest (RF) adalah algoritma ensemble berbasis pohon keputusan yang menggunakan **majority voting** dari sejumlah pohon untuk menentukan kelas akhir setiap piksel.
+
+![Random Forest Algorithm](Screenshot_2026-06-09_012602.png)
+
+Dataset dibagi ke sejumlah pohon keputusan (Tree 1, Tree 2, ..., Tree 500). Setiap pohon menghasilkan prediksi kelas secara independen. Kelas akhir ditentukan melalui **Majority Voting** dari seluruh pohon.
+
+### Implementasi dalam GEE
+
+```python
+classifier = ee.Classifier.smileRandomForest(500).train(
+    features=training_data,
+    classProperty='lc',
+    inputProperties=all_bands
+)
+classified_image = image_with_indices.select(all_bands).classify(classifier)
+```
+
+| Parameter | Nilai |
+|-----------|-------|
+| Jumlah pohon | 500 |
+| Properti kelas | `lc` (land cover) |
+| Fitur prediktor | 15 (10 band + 5 indeks) |
+| Split data | 70% train / 30% test |
+
+> Sitasi: Breiman (2001); Jamaluddin et al. (2022)
+
+---
+
+## Band Sentinel-2
+
+| Band | Nama | Panjang Gelombang | Resolusi |
+|------|------|-------------------|----------|
+| B2 | Blue | ~490 nm | 10 m |
+| B3 | Green | ~560 nm | 10 m |
+| B4 | Red | ~665 nm | 10 m |
+| B5 | Red-Edge 1 | ~705 nm | 20 m |
+| B6 | Red-Edge 2 | ~740 nm | 20 m |
+| B7 | Red-Edge 3 | ~783 nm | 20 m |
+| B8 | NIR | ~842 nm | 10 m |
+| B8A | Narrow NIR | ~865 nm | 20 m |
+| B11 | SWIR-1 | ~1610 nm | 20 m |
+| B12 | SWIR-2 | ~2190 nm | 20 m |
+| NDVI | Vegetation Index | — | — |
+| NDWI | Water Index | — | — |
+| NDMI | Moisture Index | — | — |
+| NDBI | Built-up Index | — | — |
+| IRECI | Red-Edge Chlorophyll Index | — | — |
+
+**Total prediktor:** 15 fitur (10 band spektral + 5 indeks turunan)
+
+> Sitasi: ESA (2012); ESA (2015); Suardana et al. (2023)
+
+---
+
+## Tahapan Analisis
+
+### 1. Preprocessing Citra
+
+- Sumber data: `COPERNICUS/S2_SR_HARMONIZED`
+- Periode: 1 Januari 2024 – 10 Desember 2025
+- Filter tutupan awan: `CLOUDY_PIXEL_PERCENTAGE < 20`
+- Cloud masking: Cloud Score+ (`cs_cdf >= 0.60`)
+- Komposit: Median seluruh scene yang lolos filter
+- Normalisasi reflektansi: dibagi 10.000
+
+### 2. Pelatihan Model
+
+- Algoritma: `ee.Classifier.smileRandomForest(500)`
+- Jumlah pohon: 500
+- Properti kelas: `lc`
+- Split: 70% train / 30% test (`randomColumn`)
+
+### 3. Kelas Klasifikasi
+
+| Kode | Kelas | Warna |
+|------|-------|-------|
+| 0 | Badan Air | Biru muda |
+| 1 | Mangrove | Hijau |
+| 2 | Non-Mangrove | Kuning muda |
 
 ---
 
 ## Evaluasi Akurasi
 
-Model dievaluasi menggunakan data uji 30% yang dipisahkan secara acak menggunakan `randomColumn`. Evaluasi dilakukan dengan **Confusion Matrix** untuk melihat distribusi prediksi per kelas.
+### Overall Accuracy (OA)
 
-![Confusion Matrix](download__45_.png)
+$$
+\text{OA} = \frac{\sum_{i} m_{ii}}{\sum_{i}\sum_{j} m_{ij}}
+$$
 
-Hasil confusion matrix:
+### User's Accuracy (UA) dan Producer's Accuracy (PA)
 
-| | Prediksi: Badan Air (0) | Prediksi: Mangrove (1) | Prediksi: Non-Mangrove (2) |
-|---|---|---|---|
-| **Aktual: Badan Air (0)** | 13 | 0 | 0 |
-| **Aktual: Mangrove (1)** | 0 | 83 | 0 |
-| **Aktual: Non-Mangrove (2)** | 0 | 6 | 8 |
+$$
+UA = \frac{TN}{TN + FP}
+$$
 
-Dari matriks di atas:
+$$
+PA = \frac{TP}{TP + FN}
+$$
 
-- Kelas **Badan Air** dan **Mangrove** diklasifikasikan dengan sempurna (0 kesalahan).
-- Kelas **Non-Mangrove** mengalami 6 piksel yang salah diklasifikasikan sebagai Mangrove, kemungkinan akibat kemiripan spektral vegetasi non-mangrove kering dengan mangrove di beberapa band.
+> Sitasi: Jamaluddin et al. (2022)
 
-### Metrik Akurasi
+### Kappa Coefficient
 
-| Metrik | Formula | Hasil |
-|--------|---------|-------|
-| Overall Accuracy | Jumlah benar / Total sampel | **0.9455 (94.55%)** |
-| Kappa Coefficient | (Po - Pe) / (1 - Pe) | **0.8511** — Sangat baik (> 0.80) |
+$$
+\kappa = \frac{P_o - P_e}{1 - P_e}
+$$
 
-Nilai Overall Accuracy di atas 94% dan Kappa yang tinggi mengindikasikan bahwa model Random Forest berhasil memisahkan ketiga kelas tutupan lahan dengan sangat baik, terutama untuk kelas mangrove yang menjadi fokus utama penelitian.
+| Nilai Kappa | Interpretasi |
+|-------------|--------------|
+| > 0.80 | Sangat baik |
+| 0.60 – 0.80 | Baik |
+| 0.40 – 0.60 | Sedang |
+| < 0.40 | Lemah |
+
+### Hasil
+
+| Metrik | Nilai | Interpretasi |
+|--------|-------|--------------|
+| Overall Accuracy | **0.9455** | 94.55% piksel diklasifikasikan dengan benar |
+| Kappa Coefficient | **0.8511** | Sangat baik (> 0.80) |
 
 ---
 
-> Analisis dilakukan menggunakan Google Earth Engine Python API, geemap, matplotlib, seaborn, dan scikit-learn.
-> Citra: Sentinel-2 SR Harmonized (COPERNICUS/S2_SR_HARMONIZED), periode 2024–2025.
+## Daftar Referensi
+
+**Algoritma & Model**
+
+Breiman, L. (2001). Random Forests. *Machine Learning*, 45, 5–32. https://doi.org/10.1023/A:1010933404324
+
+**Cloud Masking**
+
+Pasquarella, V. J., Brown, C. F., Czerwinski, W., & Rucklidge, W. J. (2023). Comprehensive quality assessment of optical satellite imagery using weakly supervised video learning. *CVPR Workshop 2023*, pp. 2125–2135.
+
+**Indeks Vegetasi**
+
+Clevers, J. G. P. W., Jong, S. M. De, Epema, G. F., Addink, E. A., & Box, P. O. (2000). MERIS and the Red-Edge Index. *2nd EARSeL Workshop*, Enschede. *(IRECI)*
+
+McFeeters, S. K. (1996). The use of the Normalized Difference Water Index (NDWI) in the delineation of open water features. *International Journal of Remote Sensing*, 17(7), 1425–1432. *(NDWI)*
+
+Rouse, J. W., Haas, R. H., Schell, J. A., & Deering, D. W. (1973). Monitoring Vegetation Systems in the Great Plains with ERTS. *Remote Sensing Center*. *(NDVI)*
+
+Shi, T., Liu, J., Hu, Z., Liu, H., Wang, J., & Wu, G. (2016). New spectral metrics for mangrove forest identification. *Remote Sensing Letters*, 7(9), 885–894. *(NDMI)*
+
+Tucker, C. J. (1979). Red and photographic infrared linear combinations for monitoring vegetation. *Remote Sensing of Environment*, 8, 127–150. *(NDVI, DVI)*
+
+Zha, Y., Gao, J., & Ni, S. (2003). Use of normalized difference built-up index in automatically mapping urban areas from TM imagery. *International Journal of Remote Sensing*, 24(3), 583–594. *(NDBI)*
+
+**Pemetaan Mangrove dengan Random Forest**
+
+Jamaluddin, I., Chen, Y.-N., Ridha, S. M., Mahyatar, P., & Ayudyanti, A. G. (2022). Two Decades Mangroves Loss Monitoring Using Random Forest and Landsat Data in East Luwu, Indonesia (2000–2020). *Geomatics*, 2, 282–296. https://doi.org/10.3390/geomatics2030016
+
+Suardana, A. A. Md. A. P., Anggraini, N., Nandika, M. R., Aziz, K., As-syakur, A. R., Ulfa, A., Wijaya, A. D., Prasetio, W., Winarso, G., & Dewanti, R. (2023). Estimation and Mapping Above-Ground Mangrove Carbon Stock Using Sentinel-2 Data Derived Vegetation Indices in Benoa Bay of Bali Province, Indonesia. *Forest and Society*, 7(1), 116–134. https://doi.org/10.24259/fs.v7i1.22062
+
+**Data Satelit**
+
+ESA. (2012). *Sentinel-2: ESA's Optical High-Resolution Mission for GMES Operational Services*.
+
+ESA. (2015). *Sentinel-2 User Handbook*. ESA Standard Document.
+
+Gorelick, N., Hancher, M., Dixon, M., Ilyushchenko, S., Thau, D., & Moore, R. (2017). Google Earth Engine: Planetary-scale geospatial analysis for everyone. *Remote Sensing of Environment*, 202, 18–27.
+
+**Software & Library**
+
+Jupyter / Google Colaboratory: https://colab.research.google.com
+
+Wu, Q. (2020). geemap: A Python package for interactive mapping with Google Earth Engine. *Journal of Open Source Software*, 5(51), 2305. https://doi.org/10.21105/joss.02305
+
+Wu, Q., & Landgrebe, T. (2023). *geemap* (Python package). https://geemap.org
+
+Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., ... Duchesnay, É. (2011). Scikit-learn: Machine Learning in Python. *Journal of Machine Learning Research*, 12, 2825–2830.
+
+Hunter, J. D. (2007). Matplotlib: A 2D graphics environment. *Computing in Science & Engineering*, 9(3), 90–95.
+
+Harris, C. R., et al. (2020). Array programming with NumPy. *Nature*, 585, 357–362.
+
+Waskom, M. (2021). seaborn: statistical data visualization. *Journal of Open Source Software*, 6(60), 3021. https://doi.org/10.21105/joss.03021
