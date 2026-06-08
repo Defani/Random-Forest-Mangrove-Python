@@ -2,7 +2,7 @@
 
 **Oleh:** Defani Arman Alfitriansyah
 
-Seluruh tahapan analisis dalam notebook ini dijalankan di **Google Colaboratory** menggunakan library `geemap` yang terhubung dengan **Google Earth Engine (GEE)**. Notebook dapat diakses di: [https://colab.research.google.com/drive/1QbNTV-tW1OE2vAPIRL58LTYWdCHZ9AuW?usp=sharing](https://colab.research.google.com/drive/1QbNTV-tW1OE2vAPIRL58LTYWdCHZ9AuW?usp=sharing)
+Seluruh tahapan analisis dalam notebook ini dijalankan di **Google Colaboratory** menggunakan library `geemap` yang terhubung dengan **Google Earth Engine (GEE)**. Notebook dapat diakses di: https://colab.research.google.com/drive/1QbNTV-tW1OE2vAPIRL58LTYWdCHZ9AuW?usp=sharing
 
 ---
 
